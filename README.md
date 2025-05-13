@@ -1,10 +1,3 @@
-- 👋 Hi, I’m @Shashank-kaushal
-- 👀 I’m interested in coading
-- 🌱 I’m currently learning ReactJs
-- 💞️ I’m looking to collaborate on WooCommerce, ReactJs, Wordpress
-- 📫 How to reach me ...
+# Timestamp Microservice
 
-<!---
-Shashank-kaushal/Shashank-kaushal is a ✨ special ✨ repository because its `README.md` (this file) appears on your GitHub profile.
-You can click the Preview link to take a look at your changes.
---->
+This is the boilerplate code for the Timestamp Microservice project. Instructions for building your project can be found at https://www.freecodecamp.org/learn/apis-and-microservices/apis-and-microservices-projects/timestamp-microservice
