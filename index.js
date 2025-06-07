@@ -1,48 +1,155 @@
-require('dotenv').config();
-const dns = require('dns');
-const { URL } = require('url');
-const bodyParser = require('body-parser');
-const express = require('express');
-const cors = require('cors');
-const app = express();
+const express = require('express')
+const app = express()
+const cors = require('cors')
+const bodyParser = require('body-parser')
+const mongoose = require('mongoose');
+require('dotenv').config()
 
-// Basic Configuration
-const port = process.env.PORT || 3000;
-
-app.use(cors());
-
-app.use('/public', express.static(`${process.cwd()}/public`));
-
-app.get('/', function(req, res) {
-  res.sendFile(process.cwd() + '/views/index.html');
+mongoose.connect('mongodb://127.0.0.1:27017/node-project').then(() => {
+  console.log("DB connected.");
+}).catch((err)=>{
+  console.log('error', err)
 });
 
-app.use(bodyParser.urlencoded({extended:true}));
-var urldata = {};
-app.post('/api/shorturl', (req, res) => {
-  const url = req.body.url;
-  const normalized = /^https?:\/\//i.test(url) ? url : `https://${url}`;
-  const urlObj = new URL(normalized);
-  dns.lookup(urlObj.hostname, (err, addr, fml) => {
-    if(err){
-      res.json({"error":"Invalid Url"});
-    }else{
-      const shorterUrl = Math.floor(Math.random()*10);
-      urldata = {"original_url":normalized, "short_url":shorterUrl}
-      res.json(urldata);
-    }
+const userSchema = new mongoose.Schema({
+  username : {
+    type: String,
+    required: true
+  }
+});
+
+const exerciseSchema = new mongoose.Schema({
+  username:{
+    type: String,
+    required: true
+  },
+  description:{
+    type: String
+  },
+  duration : {
+    type: Number
+  },
+  date : {
+    type: String
+  }
+});
+
+const logSchema = new mongoose.Schema({
+  username: {
+    type: String,
+    required: true
+  },
+  count: {
+    type: Number
+  },
+  log : {
+    type: Array
+  }
+});
+
+const User = mongoose.model('user', userSchema);
+const Exercise = mongoose.model('exercise', exerciseSchema);
+const Log = mongoose.model('log', logSchema);
+
+app.use(cors())
+app.use(express.static('public'))
+app.get('/', (req, res) => {
+  res.sendFile(__dirname + '/views/index.html')
+});
+
+
+app.use(bodyParser.urlencoded({extends:true}))
+app.post('/api/users', async(req, res) => {
+  const username = req.body.username;
+  const result = await User.create({
+    username : username
   })
-});
-
-app.get('/api/shorturl/:id', (req, res) => {
-  return res.redirect(urldata.original_url);
+  res.status(201).json(result);
 })
 
-// Your first API endpoint
-app.get('/api/hello', function(req, res) {
-  res.json({ greeting: 'hello API' });
+app.get('/api/users', (req, res) => {
+  const result = User.find({});
+  res.status(200).json(result);
 });
 
-app.listen(port, function() {
-  console.log(`Listening on port ${port}`);
+app.post('/api/users/:_id/exercises', async(req, res) => {
+  const userid = req.params._id;
+  console.log(userid);
+
+  const description = req.body.description;
+  const duration = req.body.duration;
+  let date = '';
+  let userName = '';
+  if( req.body.date == null || !req.body.date){
+    date = new Date().toDateString();
+  }else{
+    date = new Date(req.body.date).toDateString();
+  }
+  
+  if( userid == null || !userid || !description || !duration){
+    res.status(400).json({"message":"required params missing"});
+    return;
+  }
+  
+  let getUsers =  await User.findOne({"_id": userid});
+  
+  if( !getUsers ){
+    res.status(400).json({"message":"username not foudn with the given id."});
+    return;
+  }
+  userName = getUsers.username;
+  const result =  await Exercise.create({
+    username: userName,
+    description: description,
+    duration: duration,
+    date: date
+  });
+  res.status(201).json(result);
+  
 });
+
+app.get('/api/users/:_id/logs', async(req, res) => {
+  const user_id = req.params._id;
+  const from = req.query.from;
+  const to = req.query.to;
+  const limit = req.query.limit;
+  if( !user_id ){
+    res.status(400).json({"message" : "user id missing"});
+    return;
+  }
+  let getUserDetails = await User.findOne({"_id": user_id});
+  if( !getUserDetails ){
+    res.status(400).json({"message" : "user details not found with id -" + user_id});
+    return;
+  }
+  let exerResult = [];
+  let query = [];
+  if( !from || !to || !limit ){
+    exerResult = await Exercise.find({"username":getUserDetails.username});
+  }else{
+    exerResult = await Exercise.find(
+      {"username":getUserDetails.username, "date" : {$gte:new Date(from).toDateString(), $lte:new Date(to).toDateString()}}).limit(limit);
+  }
+  
+  let logDetails = [];
+  let execsCount = 0;
+  exerResult.map((userExercise) => {
+    logDetails.push({
+      "description" : userExercise.description,
+      "duration" : userExercise.duration,
+      "date" : userExercise.date
+    });
+    execsCount++;
+  })
+  const logs = {
+    "username" :getUserDetails.username,
+    "count" : execsCount,
+    "log" : logDetails
+  }
+  res.status(200).json(logs);
+})
+
+
+const listener = app.listen(process.env.PORT || 3000, () => {
+  console.log('Your app is listening on port ' + listener.address().port)
+})
