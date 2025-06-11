@@ -14,42 +14,35 @@ mongoose.connect('mongodb://127.0.0.1:27017/node-project').then(() => {
 const userSchema = new mongoose.Schema({
   username : {
     type: String,
-    required: true
+    required: true,
+    unique: true
   }
 });
 
 const exerciseSchema = new mongoose.Schema({
+  userId:{
+    type : String
+  },
   username:{
     type: String,
-    required: true
   },
   description:{
-    type: String
+    type: String,
+    require: true
   },
   duration : {
-    type: Number
+    type: Number,
+    require: true
   },
   date : {
-    type: String
+    type: Date
   }
 });
 
-const logSchema = new mongoose.Schema({
-  username: {
-    type: String,
-    required: true
-  },
-  count: {
-    type: Number
-  },
-  log : {
-    type: Array
-  }
-});
 
 const User = mongoose.model('user', userSchema);
 const Exercise = mongoose.model('exercise', exerciseSchema);
-const Log = mongoose.model('log', logSchema);
+
 
 app.use(cors())
 app.use(express.static('public'))
@@ -58,95 +51,120 @@ app.get('/', (req, res) => {
 });
 
 
-app.use(bodyParser.urlencoded({extends:true}))
+app.use(bodyParser.urlencoded({extended:false}))
+
 app.post('/api/users', async(req, res) => {
   const username = req.body.username;
-  const result = await User.create({
-    username : username
-  })
-  res.status(201).json(result);
+  let existsUser = await User.findOne({"username":username});
+  let user = {};
+  if( !existsUser ){
+    const result = await User.create({
+      username : username
+    }); 
+    user = {
+      username: result.username,
+      _id: result._id
+    };
+  }else{
+    user = {
+      username: existsUser.username,
+      _id: existsUser._id
+    };
+  }
+  res.status(200).json(user);
 })
 
-app.get('/api/users', (req, res) => {
-  const result = User.find({});
+app.get('/api/users', async(req, res) => {
+  const result = await User.find({});
   res.status(200).json(result);
 });
 
 app.post('/api/users/:_id/exercises', async(req, res) => {
   const userid = req.params._id;
-  console.log(userid);
-
   const description = req.body.description;
-  const duration = req.body.duration;
-  let date = '';
+  let duration = req.body.duration;
+  let date = req.body.date;
   let userName = '';
-  if( req.body.date == null || !req.body.date){
-    date = new Date().toDateString();
-  }else{
-    date = new Date(req.body.date).toDateString();
-  }
   
-  if( userid == null || !userid || !description || !duration){
+  
+  if( !userid || !description || !duration){
     res.status(400).json({"message":"required params missing"});
     return;
   }
   
-  let getUsers =  await User.findOne({"_id": userid});
+  let getUsers =  await User.findById(userid);
   
   if( !getUsers ){
-    res.status(400).json({"message":"username not foudn with the given id."});
+    res.status(400).json({"message":"username not found with the given id."});
     return;
   }
   userName = getUsers.username;
+  // console.log('existing users -->',getUsers.username);
+
   const result =  await Exercise.create({
+    userId: userid,
     username: userName,
     description: description,
-    duration: duration,
-    date: date
+    duration: parseInt(duration),
+    date: date ? new Date(date) : new Date()
   });
-  res.status(201).json(result);
+  
+  const exercideDetails = {
+    "username" : userName,
+    "description": description,
+    "duration": parseInt(duration),
+    "date": new Date(result.date).toDateString(),
+    "_id" : userid,
+  };
+  res.status(200).json(exercideDetails);
   
 });
 
 app.get('/api/users/:_id/logs', async(req, res) => {
-  const user_id = req.params._id;
-  const from = req.query.from;
-  const to = req.query.to;
-  const limit = req.query.limit;
-  if( !user_id ){
-    res.status(400).json({"message" : "user id missing"});
-    return;
-  }
-  let getUserDetails = await User.findOne({"_id": user_id});
-  if( !getUserDetails ){
-    res.status(400).json({"message" : "user details not found with id -" + user_id});
-    return;
-  }
-  let exerResult = [];
-  let query = [];
-  if( !from || !to || !limit ){
-    exerResult = await Exercise.find({"username":getUserDetails.username});
-  }else{
-    exerResult = await Exercise.find(
-      {"username":getUserDetails.username, "date" : {$gte:new Date(from).toDateString(), $lte:new Date(to).toDateString()}}).limit(limit);
-  }
-  
-  let logDetails = [];
-  let execsCount = 0;
-  exerResult.map((userExercise) => {
-    logDetails.push({
-      "description" : userExercise.description,
-      "duration" : userExercise.duration,
-      "date" : userExercise.date
-    });
-    execsCount++;
-  })
-  const logs = {
-    "username" :getUserDetails.username,
-    "count" : execsCount,
-    "log" : logDetails
-  }
-  res.status(200).json(logs);
+  const userid = req.params._id;
+const { from, to, limit } = req.query;
+
+if (!userid) {
+  return res.json({ message: "user id not found" });
+}
+
+const existsuser = await User.findById(userid);
+if (!existsuser) {
+  return res.json({ message: "user not found." });
+}
+
+let dateFilter = {};
+if (from) {
+  dateFilter["$gte"] = new Date(from);
+}
+if (to) {
+  dateFilter["$lte"] = new Date(to);
+}
+
+let filter = { userId: userid }; // make sure this field name is correct in your schema
+if (from || to) {
+  filter.date = dateFilter;
+}
+
+let exercise = await Exercise.find(filter).sort({ date: 1 });
+
+if (limit) {
+  exercise = exercise.slice(0, parseInt(limit));
+}
+
+const logs = exercise.map(e => ({
+  description: e.description,
+  duration: parseInt(e.duration),
+  date: new Date(e.date).toDateString()
+}));
+
+res.json({
+  username: existsuser.username,
+  _id: userid,
+  count: logs.length,
+  log: logs
+});
+
 })
 
 
